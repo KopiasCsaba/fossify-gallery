@@ -34,7 +34,7 @@ class GetMediaAsynctask(
         val getProperFileSize = folderSorting and SORT_BY_SIZE != 0
         val favoritePaths = context.getFavoritePaths()
         val getVideoDurations = context.config.showThumbnailVideoDuration
-        val lastModifieds = if (getProperLastModified) mediaFetcher.getLastModifieds() else HashMap()
+        val lastModifieds = if (getProperLastModified) getLastModifieds() else HashMap()
         val dateTakens = if (getProperDateTaken) mediaFetcher.getDateTakens() else HashMap()
 
         val media = if (showAll) {
@@ -58,6 +58,13 @@ class GetMediaAsynctask(
         }
 
         return mediaFetcher.groupMedia(media, pathToUse)
+    }
+
+    // only the opened folder is needed, unless the media come from multiple folders
+    private fun getLastModifieds() = if (showAll || mPath == FAVORITES) {
+        mediaFetcher.getLastModifieds()
+    } else {
+        mediaFetcher.getLastModifieds(mPath)
     }
 
     override fun onPostExecute(media: ArrayList<ThumbnailItem>) {
