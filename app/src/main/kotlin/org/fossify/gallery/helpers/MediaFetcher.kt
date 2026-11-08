@@ -10,6 +10,7 @@ import android.provider.BaseColumns
 import android.provider.MediaStore
 import android.provider.MediaStore.Files
 import android.provider.MediaStore.Images
+import android.provider.MediaStore.Video
 import android.text.format.DateFormat
 import org.fossify.commons.extensions.*
 import org.fossify.commons.helpers.*
@@ -21,6 +22,7 @@ import org.fossify.gallery.models.ThumbnailSection
 import java.io.File
 import java.util.Calendar
 import java.util.Locale
+import kotlin.math.roundToInt
 
 class MediaFetcher(val context: Context) {
     var shouldStop = false
@@ -303,6 +305,7 @@ class MediaFetcher(val context: Context) {
         val showHidden = config.shouldShowHidden
         val showPortraits = filterMedia and TYPE_PORTRAITS != 0
         val fileSizes = if (checkProperFileSize || checkFileExistence) getFolderSizes(folder) else HashMap()
+        val videoDurations = if (getVideoDurations) getFolderVideoDurations(folder) else HashMap()
 
         val files = when (folder) {
             FAVORITES -> favoritePaths.filter { showHidden || !it.contains("/.") }.map { File(it) }.toMutableList() as ArrayList<File>
@@ -393,7 +396,7 @@ class MediaFetcher(val context: Context) {
                 lastModified = newLastModified
 
                 var dateTaken = lastModified
-                val videoDuration = if (getVideoDurations && isVideo) context.getDuration(path) ?: 0 else 0
+                val videoDuration = if (getVideoDurations && isVideo) getVideoDuration(path, videoDurations) else 0
 
                 if (getProperDateTaken) {
                     var newDateTaken = dateTakens.remove(path)
@@ -708,7 +711,8 @@ class MediaFetcher(val context: Context) {
         return lastModifieds
     }
 
-    fun getLastModifieds(): HashMap<String, Long> {
+    // keyed by the full path, unlike getFolderLastModifieds(), whose keys rely on DISPLAY_NAME matching the file name
+    fun getLastModifieds(folder: String? = null): HashMap<String, Long> {
         val lastModifieds = HashMap<String, Long>()
         val projection = arrayOf(
             Images.Media.DATA,
@@ -716,9 +720,11 @@ class MediaFetcher(val context: Context) {
         )
 
         val uri = Files.getContentUri("external")
+        val selection = if (folder != null) "${Images.Media.DATA} LIKE ? AND ${Images.Media.DATA} NOT LIKE ?" else null
+        val selectionArgs = if (folder != null) arrayOf("$folder/%", "$folder/%/%") else null
 
         try {
-            context.queryCursor(uri, projection) { cursor ->
+            context.queryCursor(uri, projection, selection, selectionArgs) { cursor ->
                 try {
                     val lastModified = cursor.getLongValue(Images.Media.DATE_MODIFIED) * 1000
                     if (lastModified != 0L) {
@@ -732,6 +738,37 @@ class MediaFetcher(val context: Context) {
         }
 
         return lastModifieds
+    }
+
+    // same values as Context.getDuration(), but fetched with a single query for the whole folder
+    private fun getFolderVideoDurations(folder: String): HashMap<String, Int> {
+        val durations = HashMap<String, Int>()
+        if (folder == FAVORITES || folder == RECYCLE_BIN) {
+            return durations
+        }
+
+        val projection = arrayOf(
+            Video.Media.DATA,
+            MediaStore.MediaColumns.DURATION
+        )
+
+        val uri = Video.Media.EXTERNAL_CONTENT_URI
+        val selection = "${Video.Media.DATA} LIKE ? AND ${Video.Media.DATA} NOT LIKE ?"
+        val selectionArgs = arrayOf("$folder/%", "$folder/%/%")
+
+        try {
+            context.queryCursor(uri, projection, selection, selectionArgs) { cursor ->
+                val path = cursor.getStringValue(Video.Media.DATA)
+                durations[path] = (cursor.getIntValue(MediaStore.MediaColumns.DURATION) / 1000.toDouble()).roundToInt()
+            }
+        } catch (ignored: Exception) {
+        }
+
+        return durations
+    }
+
+    private fun getVideoDuration(path: String, folderDurations: HashMap<String, Int>): Int {
+        return folderDurations.remove(path) ?: context.getDuration(path) ?: 0
     }
 
     private fun getFolderSizes(folder: String): HashMap<String, Long> {
