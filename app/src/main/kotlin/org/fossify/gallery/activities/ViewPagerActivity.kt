@@ -21,6 +21,7 @@ import android.graphics.Color
 import android.graphics.drawable.Icon
 import android.os.Bundle
 import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.view.MenuItem
 import android.view.View
@@ -29,6 +30,7 @@ import android.view.animation.DecelerateInterpolator
 import android.widget.Toast
 import androidx.core.graphics.drawable.toDrawable
 import androidx.exifinterface.media.ExifInterface
+import androidx.lifecycle.Lifecycle
 import androidx.print.PrintHelper
 import androidx.viewpager.widget.ViewPager
 import com.bumptech.glide.Glide
@@ -55,6 +57,8 @@ import org.fossify.commons.extensions.getFilenameFromPath
 import org.fossify.commons.extensions.getFinalUriFromPath
 import org.fossify.commons.extensions.getImageResolution
 import org.fossify.commons.extensions.getIsPathDirectory
+import org.fossify.commons.extensions.getLatestMediaByDateId
+import org.fossify.commons.extensions.getLatestMediaId
 import org.fossify.commons.extensions.getParentPath
 import org.fossify.commons.extensions.getProperBackgroundColor
 import org.fossify.commons.extensions.getResolution
@@ -188,6 +192,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     companion object {
         private const val REQUEST_VIEW_VIDEO = 1
         private const val SAVED_PATH = "current_path"
+        private const val LAST_MEDIA_CHECK_PERIOD = 3000L
+        private const val LATEST_MEDIA_UNKNOWN = -1L
     }
 
     private var mPath = ""
@@ -197,6 +203,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var mShowAll = false
     private var mIsSlideshowActive = false
     private var mPrevHashcode = 0
+    private var mLatestMediaId = LATEST_MEDIA_UNKNOWN
+    private var mLatestMediaDateId = LATEST_MEDIA_UNKNOWN
+    private val mLastMediaHandler = Handler(Looper.getMainLooper())
 
     private var mSlideshowHandler = Handler()
     private var mSlideshowInterval = SLIDESHOW_DEFAULT_INTERVAL
@@ -256,11 +265,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
         val filename = getCurrentMedium()?.name ?: mPath.getFilenameFromPath()
         binding.mediumViewerToolbar.title = filename
+        checkLastMediaChanged(0L)
     }
 
     override fun onPause() {
         super.onPause()
         stopSlideshow()
+        mLastMediaHandler.removeCallbacksAndMessages(null)
     }
 
     override fun onDestroy() {
@@ -1319,10 +1330,64 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun refreshViewPager(refetchPosition: Boolean = false) {
         val isRandomSorting = config.getFolderSorting(mDirectory) and SORT_BY_RANDOM != 0
         if (!isRandomSorting || isExternalIntent()) {
-            GetMediaAsynctask(applicationContext, mDirectory, isPickImage = false, isPickVideo = false, showAll = mShowAll) {
+            var latestMediaId = LATEST_MEDIA_UNKNOWN
+            var latestMediaDateId = LATEST_MEDIA_UNKNOWN
+            GetMediaAsynctask(
+                context = applicationContext,
+                mPath = mDirectory,
+                isPickImage = false,
+                isPickVideo = false,
+                showAll = mShowAll,
+                onBeforeFetch = {
+                    // take the snapshot before fetching, so that media added during the fetch is still detected
+                    latestMediaId = getLatestMediaId()
+                    latestMediaDateId = getLatestMediaByDateId()
+                }
+            ) {
+                mLatestMediaId = latestMediaId
+                mLatestMediaDateId = latestMediaDateId
                 gotMedia(it, refetchViewPagerPosition = refetchPosition)
             }.execute()
         }
+    }
+
+    private fun checkLastMediaChanged(delay: Long = LAST_MEDIA_CHECK_PERIOD) {
+        mLastMediaHandler.removeCallbacksAndMessages(null)
+        mLastMediaHandler.postDelayed({
+            // wait for the initial load to set the baseline, and do not disturb slideshows or playing videos
+            val isBusy = mIsSlideshowActive || (getCurrentFragment() as? VideoFragment)?.mIsPlaying == true
+            if (isDestroyed || mLatestMediaId == LATEST_MEDIA_UNKNOWN || isBusy) {
+                checkLastMediaChanged()
+                return@postDelayed
+            }
+
+            ensureBackgroundThread {
+                val mediaId = getLatestMediaId()
+                val mediaDateId = getLatestMediaByDateId()
+                runOnUiThread {
+                    // the check may finish after onPause, don't let it restart the polling then
+                    if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                        return@runOnUiThread
+                    }
+
+                    if (mLatestMediaId != mediaId || mLatestMediaDateId != mediaDateId) {
+                        mLatestMediaId = mediaId
+                        mLatestMediaDateId = mediaDateId
+                        refreshViewPagerKeepingCurrent()
+                    }
+                    checkLastMediaChanged()
+                }
+            }
+        }, delay)
+    }
+
+    private fun refreshViewPagerKeepingCurrent() {
+        // portrait position lookup relies on the original intent, keep the index there
+        val keepCurrent = getPortraitPath().isEmpty()
+        if (keepCurrent) {
+            getCurrentPath().takeIf { it.isNotEmpty() }?.let { mPath = it }
+        }
+        refreshViewPager(refetchPosition = keepCurrent)
     }
 
     private fun gotMedia(thumbnailItems: ArrayList<ThumbnailItem>, ignorePlayingVideos: Boolean = false, refetchViewPagerPosition: Boolean = false) {
