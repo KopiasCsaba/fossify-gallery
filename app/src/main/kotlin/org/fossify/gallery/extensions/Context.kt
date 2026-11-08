@@ -1384,6 +1384,85 @@ fun Context.updateDirectoryPath(path: String) {
     updateDBDirectory(directory)
 }
 
+private val directoryUpdatesLock = Any()
+private val runningDirectoryUpdates = HashSet<String>()
+private val pendingDirectoryUpdates = HashSet<String>()
+private val heldDirectoryUpdates = HashMap<String, Int>()
+private val deferredDirectoryUpdates = HashSet<String>()
+
+/**
+ * While a folder is open, its screen reloads it on changes anyway, so rescanning it in parallel just to update
+ * the folder list makes both slower. Defer such rescans until [releaseDirectoryUpdates] is called.
+ */
+fun holdDirectoryUpdates(path: String) {
+    synchronized(directoryUpdatesLock) {
+        heldDirectoryUpdates[path] = (heldDirectoryUpdates[path] ?: 0) + 1
+    }
+}
+
+/**
+ * Ends a [holdDirectoryUpdates]. When the last holder releases the folder, a deferred rescan runs, unless [runDeferred]
+ * is false (e.g. on configuration changes, when the folder is held again right away), then it is kept for later.
+ */
+fun Context.releaseDirectoryUpdates(path: String, runDeferred: Boolean = true) {
+    val updateDeferred = synchronized(directoryUpdatesLock) {
+        val holders = (heldDirectoryUpdates[path] ?: 0) - 1
+        if (holders > 0) {
+            heldDirectoryUpdates[path] = holders
+            false
+        } else {
+            heldDirectoryUpdates.remove(path)
+            runDeferred && deferredDirectoryUpdates.remove(path)
+        }
+    }
+
+    if (updateDeferred) {
+        updateDirectoryPathCoalesced(path)
+    }
+}
+
+/**
+ * MediaStore sends several change notifications per new file (e.g. pending insert, finalize, metadata updates)
+ * and observers receive them one by one. Rescanning the whole folder for each of them in the observer
+ * delays the following notifications and keeps the storage busy for no reason. Instead, run the rescan in
+ * the background, at most one per folder at a time, and if more changes arrive meanwhile, rescan once more
+ * afterwards, so that the last change is never lost.
+ */
+fun Context.updateDirectoryPathCoalesced(path: String) {
+    synchronized(directoryUpdatesLock) {
+        if (heldDirectoryUpdates.containsKey(path)) {
+            deferredDirectoryUpdates.add(path)
+            return
+        }
+
+        if (!runningDirectoryUpdates.add(path)) {
+            pendingDirectoryUpdates.add(path)
+            return
+        }
+    }
+
+    // don't keep a possibly finishing activity alive while rescanning
+    val appContext = applicationContext
+
+    // not ensureBackgroundThread(), that would run inline, as observers are not called on the main thread
+    Thread {
+        do {
+            try {
+                appContext.updateDirectoryPath(path)
+            } catch (ignored: Exception) {
+            }
+
+            val updateAgain = synchronized(directoryUpdatesLock) {
+                pendingDirectoryUpdates.remove(path).also { again ->
+                    if (!again) {
+                        runningDirectoryUpdates.remove(path)
+                    }
+                }
+            }
+        } while (updateAgain)
+    }.start()
+}
+
 fun Context.getFileDateTaken(path: String): Long {
     val projection = arrayOf(
         Images.Media.DATE_TAKEN

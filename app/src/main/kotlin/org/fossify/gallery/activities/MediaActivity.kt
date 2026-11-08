@@ -72,6 +72,7 @@ import org.fossify.gallery.extensions.emptyTheRecycleBin
 import org.fossify.gallery.extensions.favoritesDB
 import org.fossify.gallery.extensions.getCachedMedia
 import org.fossify.gallery.extensions.getHumanizedFilename
+import org.fossify.gallery.extensions.holdDirectoryUpdates
 import org.fossify.gallery.extensions.isDownloadsFolder
 import org.fossify.gallery.extensions.launchAbout
 import org.fossify.gallery.extensions.launchCamera
@@ -81,6 +82,7 @@ import org.fossify.gallery.extensions.mediaDB
 import org.fossify.gallery.extensions.movePathsInRecycleBin
 import org.fossify.gallery.extensions.openPath
 import org.fossify.gallery.extensions.openRecycleBin
+import org.fossify.gallery.extensions.releaseDirectoryUpdates
 import org.fossify.gallery.extensions.restoreRecycleBinPaths
 import org.fossify.gallery.extensions.showRecycleBinEmptyingDialog
 import org.fossify.gallery.extensions.showRestoreConfirmationDialog
@@ -129,6 +131,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mShowLoadingIndicator = true
     private var mWasFullscreenViewOpen = false
     private var mLastSearchedText = ""
+    private var mHeldDirectoryPath: String? = null
     private var mLatestMediaId = 0L
     private var mLatestMediaDateId = 0L
     private var mLastMediaHandler = Handler()
@@ -182,6 +185,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
         if (mShowAll) {
             registerFileUpdateListener()
+        } else {
+            holdDirectoryUpdates(mPath)
+            mHeldDirectoryPath = mPath
         }
 
         binding.mediaEmptyTextPlaceholder2.setOnClickListener {
@@ -303,6 +309,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         mTempShowHiddenHandler.removeCallbacksAndMessages(null)
+        mHeldDirectoryPath?.let { releaseDirectoryUpdates(it, runDeferred = !isChangingConfigurations) }
     }
 
     override fun onBackPressedCompat(): Boolean {

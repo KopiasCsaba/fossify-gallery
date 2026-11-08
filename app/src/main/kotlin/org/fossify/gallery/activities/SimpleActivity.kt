@@ -15,7 +15,7 @@ import org.fossify.gallery.R
 import org.fossify.gallery.dialogs.StoragePermissionRequiredDialog
 import org.fossify.gallery.extensions.addPathToDB
 import org.fossify.gallery.extensions.config
-import org.fossify.gallery.extensions.updateDirectoryPath
+import org.fossify.gallery.extensions.updateDirectoryPathCoalesced
 import org.fossify.gallery.helpers.getPermissionsToRequest
 
 open class SimpleActivity : BaseSimpleActivity() {
@@ -28,7 +28,7 @@ open class SimpleActivity : BaseSimpleActivity() {
             if (uri != null) {
                 val path = getRealPathFromURI(uri)
                 if (path != null) {
-                    updateDirectoryPath(path.getParentPath())
+                    updateDirectoryPathCoalesced(path.getParentPath())
                     addPathToDB(path)
                 }
             }

@@ -17,7 +17,7 @@ import org.fossify.commons.extensions.getParentPath
 import org.fossify.commons.extensions.getStringValue
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.gallery.extensions.addPathToDB
-import org.fossify.gallery.extensions.updateDirectoryPath
+import org.fossify.gallery.extensions.updateDirectoryPathCoalesced
 
 // based on https://developer.android.com/reference/android/app/job/JobInfo.Builder.html#addTriggerContentUri(android.app.job.JobInfo.TriggerContentUri)
 class NewPhotoFetcher : JobService() {
@@ -100,7 +100,7 @@ class NewPhotoFetcher : JobService() {
             }
 
             affectedFolderPaths.forEach {
-                updateDirectoryPath(it)
+                updateDirectoryPathCoalesced(it)
             }
         }
 
