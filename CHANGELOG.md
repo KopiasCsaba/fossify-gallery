@@ -5,8 +5,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- Improved performance of refreshing large folders, especially with many videos ([#54])
+- Improved performance when new photos are added to large folders ([#54])
+
 ### Fixed
 - Fixed new photos sometimes not appearing until the next refresh ([#284])
+- Fixed new photos not appearing in the fullscreen viewer ([#284])
 
 ## [1.14.2] - 2026-11-03
 ### Changed
@@ -279,6 +284,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed privacy policy link
 
 [#29]: https://github.com/FossifyOrg/Gallery/issues/29
+[#54]: https://github.com/FossifyOrg/Gallery/issues/54
 [#62]: https://github.com/FossifyOrg/Gallery/issues/62
 [#128]: https://github.com/FossifyOrg/Gallery/issues/128
 [#166]: https://github.com/FossifyOrg/Gallery/issues/166
